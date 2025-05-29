@@ -1,0 +1,28 @@
+This is the installation guidance for the backend and the frontend.
+
+once you clone the repository using:
+git clone https://github.com/hanskingst/Reina_Project.git
+
+Backend:
+navigate to the reina_backend folder using: cd reina_backend and run:
+pip install -r requirements.txt,
+then to run the backend server use:
+uvicorn main:app --reload
+
+that will install every dependency for the backend.
+
+
+Frontend:
+After the repo is cloned ensure you have node and npm installed navigate to the reina_frontend using:
+cd reina_frontend,
+then run: npm install,
+then to run the frontend server use:
+npm run dev
+
+
+After that you are good to open the browser and enter the link from your frontend terminal it will be 
+somthing like: http://localhost:5173
+
+
+Note: in the same ide open two terminals if you are using vs code one to run the backend server, and the 
+other to run the front end server.
