@@ -1,17 +1,24 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
-interface loginStore{
-    accessToken: string | null;
-    requestToken: string | null;
-    tokenType: string | null
-    setTokens: (accessToken: string, requestToken: string, tokenType: string) => void,
-    clearTokens:() => void
-}
+type LoginStore = {
+  accessToken: string | null;
+  tokenType: string | null;
+  refreshToken: string | null; 
+  name: string | null;
+  netIncome: number;
+  setTokens: (accessToken: string, tokenType: string, refreshToken: string, name: string) => void;
+  clearTokens: () => void;
+  updateNetIncome: (income: number) => void;
+};
 
-export const useLoginStore = create<loginStore>(set => ({
-    accessToken:null,
-    requestToken:null,
-    tokenType:null,
-    setTokens:(accessToken,requestToken,tokenType) => set({accessToken,requestToken,tokenType}),
-    clearTokens:() =>set({accessToken:null,requestToken:null,tokenType:null})
-}))
+export const useLoginStore = create<LoginStore>((set) => ({
+  accessToken: null,
+  tokenType: null,
+  refreshToken: null, 
+  name: null,
+  netIncome: 50000,
+  setTokens: (accessToken, tokenType, refreshToken, name) =>
+    set({ accessToken, tokenType, refreshToken, name }),
+  clearTokens: () => set({ accessToken: null, tokenType: null, refreshToken: null, name: null }),
+  updateNetIncome: (income) => set({ netIncome: income }),
+}));

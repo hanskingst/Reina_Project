@@ -146,39 +146,63 @@ async def Update_net_income(income:user.UserUpdate, db:db_dependency,current_use
 @app.get('/me',response_model=user.UserResponse)
 async def get_current_user_endpoint(current_user: schema.User = Depends(get_current_user)):
     return current_user
+from datetime import datetime
 
 @app.post("/expenses", response_model=expense.ExpenseResponse)
-async def create_expense(expense_data:expense.ExpenseCreate, db:db_dependency ,current_user:schema.User = Depends(get_current_user)):
+async def create_expense(expense_data: expense.ExpenseCreate, db: db_dependency, current_user: schema.User = Depends(get_current_user)):
+    # Convert expense_data.Date to datetime for comparison
+    expense_datetime = datetime.combine(expense_data.Date, datetime.min.time())
+    if expense_datetime > datetime.now():
+        raise HTTPException(status_code=422, detail="Date cannot be ahead of the current date")
     
-    if expense_data.amount <0:
+    if expense_data.amount < 0:
         raise HTTPException(status_code=422, detail="Amount must be positive")
-    if not expense_data.category in ['Food','Savings','Health', 'Education', 'Transport','Clothing']:
+    if expense_data.category not in ['Food', 'Savings', 'Health', 'Education', 'Transport', 'Clothing']:
         raise HTTPException(status_code=422, detail="Category is invalid")
-    if expense_data.Date > datetime.now():
-        raise HTTPException(status_code=422,detail="Date can not be ahead of the current date")
     
     db_user = db.query(schema.User).filter(schema.User.user_id == current_user.user_id).first()
-    
     if not db_user:
         raise HTTPException(status_code=404, detail="User not existing")
     
-    new_expense = schema.Expense(user_id = current_user.user_id,amount = expense_data.amount, category = expense_data.category, date = expense_data.Date)
-    
+    new_expense = schema.Expense(user_id=current_user.user_id, amount=expense_data.amount, category=expense_data.category, date=expense_data.Date)
     db.add(new_expense)
     db.commit()
     db.refresh(new_expense)
     
     return new_expense
 
+@app.patch('/notifications/{notification_id}/read', response_model=notification.NotificationResponse)
+async def mark_notification_as_read(
+    notification_id: int,
+    db: Annotated[Session, Depends(db.get_db)],
+    current_user: Annotated[schema.User, Depends(get_current_user)]
+):
+    db_notification = db.query(schema.Notification).filter(
+        schema.Notification.notification_id == notification_id
+    ).first()
+
+    if not db_notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    if db_notification.user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this notification")
+
+    db_notification.is_read = True
+    db.commit()
+    db.refresh(db_notification)
+
+    return db_notification
+
+
 @app.get("/expenses", response_model=Dict)
-async def get_expense(db:db_dependency,
-        page:int = Query(1,ge=1),
-        limit:int = Query(5,ge=1, 
-        le=100), 
-        current_user: schema.User = Depends(get_current_user),
-        category:str = Query(None),
-        chart_type:str = Query(None, regex="^(bar|line|pie)$")
-        ):
+async def get_expense(
+    db: db_dependency,
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=100),
+    current_user: schema.User = Depends(get_current_user),
+    category: str = Query(None),
+    chart_type: str = Query(None, regex="^(bar|line|pie)$")
+):
     query = db.query(schema.Expense).filter(schema.Expense.user_id == current_user.user_id)
     
     if category:
@@ -188,43 +212,70 @@ async def get_expense(db:db_dependency,
     offset = (page - 1) * limit
     expenses = query.offset(offset).limit(limit).all()
     
+    # Convert schema.Expense objects to dictionaries matching ExpenseResponse
+    expense_dicts = [
+        {
+            "expense_id": exp.expense_id,  
+            "amount": exp.amount,
+            "category": exp.category,
+            "date": exp.date.isoformat() if exp.date else None,  
+            "user_id": exp.user_id, 
+            "created_at": exp.created_at.isoformat() if exp.created_at else None  
+        } for exp in expenses
+    ]
+    
     response = {
-        "items":[expense.ExpenseResponse.model_validate(exp) for exp in expenses],
-        "total":total,
-        "limit":limit,
-        "page":page
+        "items": [expense.ExpenseResponse.model_validate(exp_dict) for exp_dict in expense_dicts],
+        "total": total,
+        "limit": limit,
+        "page": page
     }
     
     if chart_type:
         if chart_type == "bar":
-            chart_data = db.query(schema.Expense.category, 
-                func.week(schema.Expense.created_at).label("week"), 
-                schema.Expense.amount).filter(schema.Expense.user_id == current_user.user_id).all()
-            response["chart"] = [{"category":c,"amount":a,"week":w} for c,a,w in chart_data]
+            chart_data = db.query(
+                schema.Expense.category,
+                func.week(schema.Expense.created_at).label("week"),
+                schema.Expense.amount
+            ).filter(schema.Expense.user_id == current_user.user_id).all()
+            response["chart"] = [{"category": c, "amount": a, "week": w} for c, a, w in chart_data]
         elif chart_type == "line":
-            chart_data = db.query(schema.Expense.category,
-                func.date(schema.Expense.created_at).label("date"), 
-                func.sum(schema.Expense.amount).label("total_amount")).filter(schema.Expense.user_id == current_user.user_id,
+            chart_data = db.query(
+                schema.Expense.category,
+                func.date(schema.Expense.created_at).label("date"),
+                func.sum(schema.Expense.amount).label("total_amount")
+            ).filter(
+                schema.Expense.user_id == current_user.user_id,
                 func.date(schema.Expense.created_at) == date.today()
-                ).group_by(schema.Expense.category,func.date(schema.Expense.created_at)).all()
-            response["chart"] = [{"category":c,"date":d.isoformat(),"total_amount":t} for c,d,t in chart_data]
+            ).group_by(
+                schema.Expense.category,
+                func.date(schema.Expense.created_at)
+            ).all()
+            response["chart"] = [{"category": c, "date": d.isoformat(), "total_amount": t} for c, d, t in chart_data]
         elif chart_type == "pie":
-            total_amount = db.query(func.sum(schema.Expense.amount)).filter(schema.Expense.user_id == current_user.user_id,
-            func.date(schema.Expense.created_at) == date.today()).scalar or 0
+            total_amount = db.query(
+                func.sum(schema.Expense.amount)
+            ).filter(
+                schema.Expense.user_id == current_user.user_id,
+                func.date(schema.Expense.created_at) == date.today()
+            ).scalar() or 0
             if total_amount == 0:
                 response["chart"] = []
             else:
-                chart_data = db.query(schema.Expense.category, func.sum(schema.Expense.amount).label("category_total")
-                ).filter(schema.Expense.user_id == current_user.user_id,func.date(schema.Expense.created_at )== date.today()
-                    ).group_by(schema.Expense.category).all()
-                response["chart"] = [{"category":c,"percentage":round((ct/total_amount) * 100,2)} for c,ct in chart_data]
+                chart_data = db.query(
+                    schema.Expense.category,
+                    func.sum(schema.Expense.amount).label("category_total")
+                ).filter(
+                    schema.Expense.user_id == current_user.user_id,
+                    func.date(schema.Expense.created_at) == date.today()
+                ).group_by(schema.Expense.category).all()
+                response["chart"] = [{"category": c, "percentage": round((ct/total_amount) * 100, 2)} for c, ct in chart_data]
                 
     return response
-              
 
 
 @app.put("/expense/{current_expense_id}", response_model=expense.ExpenseResponse)
-async def updata_expense(db:db_dependency,expense_data:expense.ExpenseUpdate, current_expense_id:int, current_user: schema.User = Depends(get_current_user)):
+async def updata_expense(db:db_dependency, expense_data:expense.ExpenseUpdate, current_expense_id:int, current_user: schema.User = Depends(get_current_user)):
     
     db_expense = db.query(schema.Expense).filter(schema.Expense.expense_id == current_expense_id).first()
     
@@ -232,25 +283,40 @@ async def updata_expense(db:db_dependency,expense_data:expense.ExpenseUpdate, cu
         raise HTTPException(status_code=404, detail="No expense found")
     
     if db_expense.user_id != current_user.user_id:
-        raise HTTPException(status_code=403,detail="User is not authorized to update this expense")
+        raise HTTPException(status_code=403, detail="User is not authorized to update this expense")
     
     if expense_data.amount is not None:
-        if expense_data.amount <0:
+        if expense_data.amount < 0:
             raise HTTPException(status_code=422, detail="Amount must be positive")
         if current_user.net_income is not None or expense_data.amount > current_user.net_income:
             return {"status":"insufficient_funds", "notify":True, "message":"Updated amount exceded net income"}
         
     update = expense_data.model_dump(exclude_unset=True)
-    for key,value in update.items():
-        if key in ["amount","Date","category"]:
-            setattr(db_expense,key,value)
+    for key, value in update.items():
+        if key in ["amount", "Date", "category"]:
+            setattr(db_expense, key, value)
     if not update:
         return db_expense
     db.commit()
     db.refresh(db_expense)
     return db_expense
 
-@app.delete("/expenses/{expense_id}", status_code=200)
+@app.get("/expenses/total", response_model=None)
+async def get_total_spent(db: Annotated[Session, Depends(db.get_db)], current_user: Annotated[schema.User, Depends(get_current_user)]):
+    total = db.query(func.sum(schema.Expense.amount)).filter(schema.Expense.user_id == current_user.user_id).scalar() or 0
+    return {"total": total}
+
+@app.get("/expenses/monthly", response_model=None)
+async def get_monthly_spent(db: Annotated[Session, Depends(db.get_db)], current_user: Annotated[schema.User, Depends(get_current_user)]):
+    current_date = datetime.now()
+    monthly = db.query(func.sum(schema.Expense.amount)).filter(
+        schema.Expense.user_id == current_user.user_id,
+        func.extract('month', schema.Expense.date) == current_date.month,
+        func.extract('year', schema.Expense.date) == current_date.year
+    ).scalar() or 0
+    return {"monthly": monthly}
+
+@app.delete("/expense/{expense_id}", status_code=200)
 async def delete_expense(db:db_dependency, expense_id:int, current_user: schema.User = Depends(get_current_user)):
     db_expense = db.query(schema.Expense).filter(schema.Expense.expense_id == expense_id).first()
     if not db_expense:
@@ -261,24 +327,38 @@ async def delete_expense(db:db_dependency, expense_id:int, current_user: schema.
     
     db.commit()
     
-    return {"status":"deleted","message":f"expense {expense_id} successfully deleted "}
+    return {"status":"deleted", "message":f"expense {expense_id} successfully deleted "}
+
+@app.delete('/notifications', response_model=dict)
+async def delete_all_notifications(
+    db: Annotated[Session, Depends(db.get_db)],
+    current_user: Annotated[schema.User, Depends(get_current_user)]
+):
+    deleted_count = db.query(schema.Notification).filter(
+        schema.Notification.user_id == current_user.user_id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    return {
+        "status": "deleted",
+        "message": f"{deleted_count} notifications deleted successfully"
+    }
 
 
-@app.post('/notification', response_model=notification.NotificationResponse)
-async def create_notification(db:db_dependency, 
-    new_notification:notification.NotificationCreate = None, 
-    current_user: schema.User = Depends(get_current_user) ):
-    
+@app.post('/notifications', response_model=notification.NotificationResponse, status_code=201)
+async def create_notification(
+    new_notification: notification.NotificationCreate,
+    db: Annotated[Session, Depends(db.get_db)],
+    current_user: Annotated[schema.User, Depends(get_current_user)]
+):
     new_notification_create = schema.Notification(
-        user_id = current_user.user_id,
-        message = new_notification.message if new_notification else "System default",
-        is_read = False
+        user_id=current_user.user_id,
+        message=new_notification.message,
+        is_read=False
     )
-    
     db.add(new_notification_create)
     db.commit()
     db.refresh(new_notification_create)
-    
     return new_notification_create
 
 @app.put('/notification/{notification_id}', response_model=notification.NotificationResponse)
@@ -299,13 +379,15 @@ async def update_notification(db:db_dependency,
     return db_notification
 
 @app.get('/notifications', response_model=Dict)
-async def get_notifications(db:db_dependency, current_user: schema.User = Depends(get_current_user)):
-    unread_notifications_count = db.query(schema.Notification
-        ).filter(schema.Notification.user_id == current_user.user_id,
-                 schema.Notification.is_read == False
-        ).all()
-    
-    return {"unread_notifications_count":unread_notifications_count}
+async def get_notifications(
+    db: Annotated[Session, Depends(db.get_db)],
+    current_user: Annotated[schema.User, Depends(get_current_user)]
+):
+    unread_notifications_count = db.query(schema.Notification).filter(
+        schema.Notification.user_id == current_user.user_id,
+        schema.Notification.is_read == False
+    ).count()  # Use count() instead of all() to get the number
+    return {"unread_notifications_count": unread_notifications_count}
 
 @app.get('/notifications/details', response_model=List[notification.NotificationResponse])
 async def get_notifications_details(db:db_dependency, current_user: schema.User = Depends(get_current_user)):
