@@ -364,9 +364,7 @@ const Dashboard = () => {
             isSidebarOpen ? "translate-x-0" : "-translate-x-full"
           } md:translate-x-0 z-20 pt-0`}
         >
-          <h2 className="text-xl font-bold mb-6 text-left">
-            Reina Expense Tracker
-          </h2>
+          <h2 className="text-xl font-bold mb-6 text-left">ExTrack</h2>
           <nav>
             <ul className="space-y-2">
               <li>

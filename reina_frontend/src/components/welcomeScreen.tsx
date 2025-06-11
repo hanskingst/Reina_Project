@@ -25,7 +25,7 @@ const WelcomeScreen = () => {
         </div>
 
         <h1 className="text-blue-500 font-bold text-sm md:text-lg lg:text-2xl animate-zoom-in mb-4">
-          Welcome to Reina Expense Tracker
+          Welcome to ExTrack
         </h1>
 
         <p className="text-gray-700 text-sm md:text-base lg:text-lg animate-fade-in max-w-md">
