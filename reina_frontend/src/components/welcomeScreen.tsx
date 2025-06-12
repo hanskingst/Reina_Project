@@ -24,7 +24,7 @@ const WelcomeScreen = () => {
           />
         </div>
 
-        <h1 className="text-blue-500 font-bold text-sm md:text-3xl lg:text-4xl animate-zoom-in mb-4">
+        <h1 className="text-blue-500 font-bold text-sm md:text-5xl lg:text-7xl animate-zoom-in mb-4">
           Welcome to ExTrack
         </h1>
 
